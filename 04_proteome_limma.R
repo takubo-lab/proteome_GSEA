@@ -5,6 +5,7 @@ if (!exists("args", inherits = FALSE)) {
 }
 input_file <- if (length(args) >= 1) args[[1]] else "proteome_data.csv"
 output_dir <- if (length(args) >= 2) args[[2]] else "Proteome_DE"
+metadata_file <- if (length(args) >= 3) args[[3]] else ""
 
 ensure_package <- function(pkg, source = c("CRAN", "BIOC")) {
   source <- match.arg(source)
@@ -36,6 +37,10 @@ suppressPackageStartupMessages({
 
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
+`%||%` <- function(x, y) {
+  if (is.null(x)) y else x
+}
+
 parse_sample_name <- function(sample_name) {
   parts <- strsplit(sample_name, "-", fixed = TRUE)[[1]]
   if (length(parts) != 2) {
@@ -50,6 +55,81 @@ parse_sample_name <- function(sample_name) {
     replicate = sub("^[A-Za-z]+", "", suffix),
     stringsAsFactors = FALSE
   )
+}
+
+read_sample_metadata <- function(path) {
+  if (!file.exists(path)) {
+    stop("Sample metadata file not found: ", path)
+  }
+
+  sample_info <- fread(path, data.table = FALSE)
+  required_cols <- c("sample", "condition")
+  missing_cols <- setdiff(required_cols, names(sample_info))
+  if (length(missing_cols) > 0) {
+    stop(
+      "Sample metadata must contain these columns: sample, condition. Missing: ",
+      paste(missing_cols, collapse = ", ")
+    )
+  }
+
+  if (!("batch" %in% names(sample_info))) {
+    sample_info$batch <- "batch1"
+  }
+  if (!("replicate" %in% names(sample_info))) {
+    sample_info$replicate <- seq_len(nrow(sample_info))
+  }
+
+  sample_info <- sample_info[, c("sample", "condition", "batch", "replicate")]
+  sample_info[] <- lapply(sample_info, function(x) if (is.character(x)) trimws(x) else x)
+
+  if (anyDuplicated(sample_info$sample)) {
+    stop("Duplicate sample names found in sample metadata.")
+  }
+
+  sample_info
+}
+
+infer_sample_info <- function(sample_cols) {
+  do.call(rbind, lapply(sample_cols, parse_sample_name))
+}
+
+choose_sample_columns <- function(proteome_df, sample_info = NULL) {
+  if (!is.null(sample_info)) {
+    missing_cols <- setdiff(sample_info$sample, names(proteome_df))
+    if (length(missing_cols) > 0) {
+      stop(
+        "These samples from metadata were not found as columns in the proteome table: ",
+        paste(missing_cols, collapse = ", ")
+      )
+    }
+    return(sample_info$sample)
+  }
+
+  guessed_cols <- names(proteome_df)[grepl("^[^-]+-[A-Za-z]+[0-9]+$", names(proteome_df))]
+  if (length(guessed_cols) < 4) {
+    stop(
+      "Could not identify sample columns automatically. ",
+      "Provide a sample metadata file as the third argument."
+    )
+  }
+  guessed_cols
+}
+
+normalize_sample_info <- function(sample_info) {
+  sample_info$condition <- factor(sample_info$condition)
+  sample_info$batch <- factor(sample_info$batch)
+  sample_info
+}
+
+build_design_matrix <- function(sample_info) {
+  if (nlevels(sample_info$batch) > 1) {
+    design <- model.matrix(~ 0 + condition + batch, data = sample_info)
+    if (qr(design)$rank == ncol(design)) {
+      return(list(design = design, uses_batch = TRUE))
+    }
+  }
+
+  list(design = model.matrix(~ 0 + condition, data = sample_info), uses_batch = FALSE)
 }
 
 extract_gene_symbol <- function(gene_value, fallback_value) {
@@ -153,6 +233,10 @@ write_boxplot <- function(mat, output_file, title_text) {
   )
 }
 
+sanitize_filename <- function(x) {
+  gsub("[^A-Za-z0-9._-]", "_", x)
+}
+
 build_contrasts <- function(condition_levels) {
   if (length(condition_levels) < 2) {
     stop("At least two conditions are required for differential analysis.")
@@ -162,8 +246,14 @@ build_contrasts <- function(condition_levels) {
   contrast_names <- character()
   pairs <- combn(condition_levels, 2, simplify = FALSE)
   for (pair in pairs) {
-    contrast_names <- c(contrast_names, paste0(pair[[2]], "_vs_", pair[[1]]))
-    contrast_strings <- c(contrast_strings, paste0("condition", pair[[2]], "-condition", pair[[1]]))
+    contrast_names <- c(
+      contrast_names,
+      paste0(sanitize_filename(make.names(pair[[2]])), "_vs_", sanitize_filename(make.names(pair[[1]])))
+    )
+    contrast_strings <- c(
+      contrast_strings,
+      paste0("condition", make.names(pair[[2]]), "-condition", make.names(pair[[1]]))
+    )
   }
 
   names(contrast_strings) <- contrast_names
@@ -174,6 +264,7 @@ cat("============================================\n")
 cat(" Step 4: Proteome differential analysis\n")
 cat(" Input  : ", normalizePath(input_file, mustWork = FALSE), "\n", sep = "")
 cat(" Output : ", normalizePath(output_dir, mustWork = FALSE), "\n", sep = "")
+cat(" Sample metadata : ", if (nzchar(metadata_file)) normalizePath(metadata_file, mustWork = FALSE) else "<auto-detect>", "\n", sep = "")
 cat("============================================\n")
 
 if (!file.exists(input_file)) {
@@ -181,15 +272,18 @@ if (!file.exists(input_file)) {
 }
 
 proteome_df <- fread(input_file, data.table = FALSE)
-sample_cols <- names(proteome_df)[grepl("^[^-]+-[A-Za-z]+[0-9]+$", names(proteome_df))]
-
-if (length(sample_cols) < 4) {
-  stop("Could not identify proteome sample columns from the input table.")
+sample_info <- if (nzchar(metadata_file)) {
+  read_sample_metadata(metadata_file)
+} else {
+  NULL
 }
 
-sample_info <- do.call(rbind, lapply(sample_cols, parse_sample_name))
-sample_info$condition <- factor(sample_info$condition)
-sample_info$batch <- factor(sample_info$batch)
+sample_cols <- choose_sample_columns(proteome_df, sample_info)
+sample_info <- normalize_sample_info(sample_info %||% infer_sample_info(sample_cols))
+
+if (nlevels(sample_info$condition) < 2) {
+  stop("At least two conditions are required for differential analysis.")
+}
 
 fwrite(sample_info, file.path(output_dir, "sample_metadata.tsv"), sep = "\t")
 
@@ -240,7 +334,8 @@ annotated_df <- cbind(
   data.frame(gene_symbol = gene_symbol, stringsAsFactors = FALSE)
 )
 
-min_reps_per_group <- 2
+group_sizes <- table(sample_info$condition)
+min_reps_per_group <- max(1, min(2, min(group_sizes)))
 keep_per_condition <- sapply(levels(sample_info$condition), function(cond) {
   cond_cols <- sample_info$sample[sample_info$condition == cond]
   rowSums(!is.na(norm_mat[, cond_cols, drop = FALSE])) >= min_reps_per_group
@@ -286,10 +381,8 @@ fwrite(
   sep = "\t"
 )
 
-design <- model.matrix(~ 0 + condition + batch, data = sample_info)
-if (qr(design)$rank < ncol(design)) {
-  design <- model.matrix(~ 0 + condition, data = sample_info)
-}
+design_info <- build_design_matrix(sample_info)
+design <- design_info$design
 
 contrast_strings <- build_contrasts(levels(sample_info$condition))
 contrast_matrix <- makeContrasts(contrasts = unname(contrast_strings), levels = design)
@@ -305,13 +398,15 @@ summary_lines <- c(
   paste0("Detected samples: ", paste(sample_info$sample, collapse = ", ")),
   paste0("Conditions: ", paste(levels(sample_info$condition), collapse = ", ")),
   paste0("Batches: ", paste(levels(sample_info$batch), collapse = ", ")),
+  paste0("Condition sample counts: ", paste(names(group_sizes), group_sizes, sep = "=", collapse = ", ")),
+  paste0("Minimum non-missing replicates required per condition: ", min_reps_per_group),
   paste0("Pseudocount for log2 transform: ", signif(pseudocount, 4)),
   paste0("Rows before filtering: ", nrow(proteome_df)),
   paste0("Rows after filtering: ", nrow(filtered_mat)),
   paste0("Unique genes after collapsing duplicates: ", nrow(collapsed_mat)),
   "Bias mitigation:",
   "- Median-centering was applied across samples to reduce loading and global intensity bias.",
-  "- EXP/REQ was modeled as a batch factor when the design matrix was full rank.",
+  paste0("- Batch was ", if (design_info$uses_batch) "included" else "not included", " in the linear model."),
   "- No global missing-value imputation was used for differential testing.",
   "- Ranking for downstream GSEA is provided as the moderated t statistic."
 )
