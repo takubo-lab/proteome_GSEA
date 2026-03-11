@@ -95,6 +95,14 @@ write_pca_plot <- function(mat, sample_info, output_file, title_text) {
   }
 
   plot_mat <- impute_for_pca(plot_mat)
+  row_sd <- apply(plot_mat, 1, sd)
+  variable_rows <- is.finite(row_sd) & row_sd > 0
+  plot_mat <- plot_mat[variable_rows, , drop = FALSE]
+  if (nrow(plot_mat) < 2) {
+    message("Skipping PCA plot because fewer than two variable proteins remained after filtering.")
+    return(invisible(NULL))
+  }
+
   pca <- prcomp(t(plot_mat), center = TRUE, scale. = TRUE)
   pc_var <- summary(pca)$importance[2, 1:2] * 100
 
