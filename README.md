@@ -11,7 +11,7 @@
   - GSEA 用に moderated t statistic を rank_metric として出力します。
 
 - [05_proteome_fgsea.R](05_proteome_fgsea.R)
-  - [Gene_set/Human_old_HSC_set2.gmt](Gene_set/Human_old_HSC_set2.gmt) を読み込みます。
+   - MsigDB の H, C2, C5, C7 と [Gene_set/Human_old_HSC_set2.gmt](Gene_set/Human_old_HSC_set2.gmt) を読み込みます。
   - [04_proteome_limma.R](04_proteome_limma.R) が出力した差次解析結果を使って fgsea を実行します。
 
 ## 実行方法
@@ -21,6 +21,7 @@
 - data.table
 - limma
 - fgsea
+- msigdbr
 
 現在のスクリプトは、不足している package があれば自動で install を試みます。
 
@@ -36,7 +37,7 @@ source("05_proteome_fgsea.R")
 
 ```r
 source("04_proteome_limma.R", local = list(args = c("proteome_data.csv", "Proteome_DE")))
-source("05_proteome_fgsea.R", local = list(args = c("Proteome_DE", "Gene_set/Human_old_HSC_set2.gmt", "Proteome_fGSEA")))
+source("05_proteome_fgsea.R", local = list(args = c("Proteome_DE", "Gene_set/Human_old_HSC_set2.gmt", "Proteome_fGSEA", "Mus musculus")))
 ```
 
 Rscript で実行する場合:
@@ -50,7 +51,7 @@ Rscript 05_proteome_fgsea.R
 
 ```r
 Rscript 04_proteome_limma.R proteome_data.csv Proteome_DE
-Rscript 05_proteome_fgsea.R Proteome_DE Gene_set/Human_old_HSC_set2.gmt Proteome_fGSEA
+Rscript 05_proteome_fgsea.R Proteome_DE Gene_set/Human_old_HSC_set2.gmt Proteome_fGSEA "Mus musculus"
 ```
 
 ## 出力
@@ -66,6 +67,9 @@ Rscript 05_proteome_fgsea.R Proteome_DE Gene_set/Human_old_HSC_set2.gmt Proteome
 - Proteome_fGSEA
   - 各比較ごとの fgsea_Results_*.tsv
   - 各比較ごとの barplot PDF
+   - fgsea_summary.txt
+
+結果の pathway 名は `H::`, `C2::`, `C5::`, `C7::`, `CUSTOM::` の接頭辞付きで出力されます。
 
 ## proteome に GSEA を使う際の注意
 
@@ -87,9 +91,9 @@ RNA-seq と異なり、proteome の定量値は count ではなく連続値で�
    - これにより高発現タンパク質だけが過度に優位になる偏りを減らします。
 
 5. species 差
-   - gene set は human 名称です。
-   - 現在のスクリプトでは mouse の gene symbol を大文字化して human 側と突き合わせる簡便法を使っています。
-   - 厳密な解釈が必要なら、正式な ortholog 変換を別途入れてください。
+   - MsigDB の H, C2, C5, C7 は `msigdbr` から `Mus musculus` 指定で取得するため、proteome 側との整合性は custom GMT より高いです。
+   - 一方で [Gene_set/Human_old_HSC_set2.gmt](Gene_set/Human_old_HSC_set2.gmt) は human 名称のままなので、現在のスクリプトでは大文字化による簡便マッチングを使っています。
+   - 厳密な解釈が必要なら、custom GMT 側には正式な ortholog 変換を別途入れてください。
 
 ## GitHub について
 

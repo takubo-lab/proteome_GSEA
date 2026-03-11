@@ -6,6 +6,8 @@ if (!exists("args", inherits = FALSE)) {
 de_dir <- if (length(args) >= 1) args[[1]] else "Proteome_DE"
 gmt_file <- if (length(args) >= 2) args[[2]] else file.path("Gene_set", "Human_old_HSC_set2.gmt")
 output_dir <- if (length(args) >= 3) args[[3]] else "Proteome_fGSEA"
+msig_species <- if (length(args) >= 4) args[[4]] else "Mus musculus"
+msig_categories <- c("H", "C2", "C5", "C7")
 
 ensure_package <- function(pkg, source = c("CRAN", "BIOC")) {
   source <- match.arg(source)
@@ -29,15 +31,17 @@ ensure_package <- function(pkg, source = c("CRAN", "BIOC")) {
 
 ensure_package("data.table", "CRAN")
 ensure_package("fgsea", "BIOC")
+ensure_package("msigdbr", "CRAN")
 
 suppressPackageStartupMessages({
   library(data.table)
   library(fgsea)
+  library(msigdbr)
 })
 
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
-read_gmt <- function(path) {
+read_gmt <- function(path, prefix = "CUSTOM") {
   lines <- readLines(path, warn = FALSE)
   lines <- lines[nzchar(trimws(lines))]
   gmt_list <- vector("list", length(lines))
@@ -45,7 +49,7 @@ read_gmt <- function(path) {
 
   for (idx in seq_along(lines)) {
     fields <- strsplit(lines[[idx]], "\t", fixed = FALSE)[[1]]
-    gmt_names[[idx]] <- fields[[1]]
+    gmt_names[[idx]] <- paste0(prefix, "::", fields[[1]])
     genes <- unique(toupper(fields[-c(1, 2)]))
     genes <- genes[nzchar(genes)]
     gmt_list[[idx]] <- genes
@@ -53,6 +57,24 @@ read_gmt <- function(path) {
 
   names(gmt_list) <- gmt_names
   gmt_list
+}
+
+read_msigdb_sets <- function(species, categories) {
+  pathway_list <- list()
+
+  for (category_id in categories) {
+    msig_df <- msigdbr::msigdbr(species = species, category = category_id)
+    if (nrow(msig_df) == 0) {
+      next
+    }
+
+    split_list <- split(toupper(msig_df$gene_symbol), msig_df$gs_name)
+    split_list <- lapply(split_list, function(genes) unique(genes[nzchar(genes)]))
+    names(split_list) <- paste0(category_id, "::", names(split_list))
+    pathway_list <- c(pathway_list, split_list)
+  }
+
+  pathway_list
 }
 
 sanitize_filename <- function(x) {
@@ -97,6 +119,7 @@ cat(" Step 5: Proteome fGSEA\n")
 cat(" DE dir : ", normalizePath(de_dir, mustWork = FALSE), "\n", sep = "")
 cat(" GMT    : ", normalizePath(gmt_file, mustWork = FALSE), "\n", sep = "")
 cat(" Output : ", normalizePath(output_dir, mustWork = FALSE), "\n", sep = "")
+cat(" MSigDB : ", msig_species, " [", paste(msig_categories, collapse = ", "), "]\n", sep = "")
 cat("============================================\n")
 
 if (!dir.exists(de_dir)) {
@@ -107,7 +130,15 @@ if (!file.exists(gmt_file)) {
   stop("GMT file not found: ", gmt_file)
 }
 
-pathways <- read_gmt(gmt_file)
+pathways <- c(
+  read_msigdb_sets(msig_species, msig_categories),
+  read_gmt(gmt_file, prefix = "CUSTOM")
+)
+
+if (length(pathways) == 0) {
+  stop("No gene sets were loaded from MSigDB or the custom GMT file.")
+}
+
 de_files <- list.files(de_dir, pattern = "_DE_Results\\.tsv$", full.names = TRUE)
 
 if (length(de_files) == 0) {
@@ -173,8 +204,12 @@ writeLines(
   c(
     "Proteome pseudo-GSEA notes",
     paste0("Gene set file: ", normalizePath(gmt_file, mustWork = FALSE)),
+    paste0("MSigDB species: ", msig_species),
+    paste0("MSigDB collections: ", paste(msig_categories, collapse = ", ")),
+    paste0("Total pathways loaded: ", length(pathways)),
     "Gene symbols were harmonized by uppercasing both the proteome-derived ranks and GMT members.",
-    "This is a practical approximation for mouse-to-human symbol matching, not a full ortholog conversion.",
+    "MSigDB pathways are loaded via msigdbr, while the custom GMT is used as provided.",
+    "The custom GMT is still a practical approximation for mouse-to-human symbol matching, not a full ortholog conversion.",
     "Interpret pathways with low overlap_n cautiously."
   ),
   file.path(output_dir, "fgsea_summary.txt")
