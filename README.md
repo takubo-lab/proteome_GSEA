@@ -18,12 +18,6 @@ Proteome の定量テーブルから差次解析と fgsea を実行するため�
   - 差次解析結果をもとに fgsea を行います。
   - MsigDB の H, C2, C5, C7 に加えて [Gene_set/Human_old_HSC_set2.gmt](Gene_set/Human_old_HSC_set2.gmt) を解析対象に含めます。
 
-- [sample_metadata.tsv](sample_metadata.tsv)
-  - sample metadata の例です。
-
-- [proteome_data.csv](proteome_data.csv)
-  - proteome 定量テーブルの例です。
-
 ## Input format
 
 ### 1. Proteome quantification table
@@ -44,6 +38,15 @@ Proteome の定量テーブルから差次解析と fgsea を実行するため�
 | sample columns | required | 各サンプルの定量値 |
 
 サンプル列は数値である必要があります。0 以下の値は欠損として扱われます。
+
+例:
+
+```csv
+Protein.Group,Protein.Names,Genes,First.Protein.Description,Ctrl_1,Ctrl_2,Treat_1,Treat_2
+P00001,Protein A,GeneA,Example protein A,1250000,1180000,1580000,1490000
+P00002,Protein B,GeneB,Example protein B,240000,255000,198000,205000
+P00003,Protein C,GeneC,Example protein C,53000,61000,88000,91000
+```
 
 ### 2. Sample metadata table
 
@@ -69,6 +72,16 @@ Treat_2	Treat	Batch2	2
 ```
 
 metadata を指定しない場合は、サンプル列名が `condition-batchRep` 形式であると仮定して自動推定します。これは後方互換のための fallback であり、公開用途では metadata 指定を推奨します。
+
+CSV 形式でも問題ありません。例えば次のような内容です。
+
+```csv
+sample,condition,batch,replicate
+Ctrl_1,Ctrl,Batch1,1
+Ctrl_2,Ctrl,Batch1,2
+Treat_1,Treat,Batch2,1
+Treat_2,Treat,Batch2,2
+```
 
 ## Analysis strategy
 
@@ -122,10 +135,10 @@ proteome の GSEA では、RNA-seq と異なるバイアスに注意が必要で
    raw intensity や raw logFC のみで ranking すると高発現 protein に偏りやすいため、moderated t statistic を使います。
 
 6. species 差を分けて扱う
-  MsigDB は `msigdbr` から species 指定で取得します。一方で custom GMT はファイル内容をそのまま使うため、human 系の GMT を mouse proteome に使う場合は別途 ortholog 変換を検討してください。
+   MsigDB は `msigdbr` から species 指定で取得します。一方で custom GMT はファイル内容をそのまま使うため、human 系の GMT を mouse proteome に使う場合は別途 ortholog 変換を検討してください。
 
 7. gene symbol 表記を一貫化する
-  proteome 側の gene symbol、MsigDB、custom GMT はすべて `trimws + toupper` で正規化してから突き合わせます。human と mouse で大文字小文字の流儀が異なっていても一致しやすくするためです。ただし、これは表記ゆれ吸収であって ortholog 変換ではありません。
+   proteome 側の gene symbol、MsigDB、custom GMT はすべて `trimws + toupper` で正規化してから突き合わせます。human と mouse で大文字小文字の流儀が異なっていても一致しやすくするためです。ただし、これは表記ゆれ吸収であって ortholog 変換ではありません。
 
 ## Requirements
 
@@ -153,7 +166,7 @@ metadata を使う推奨実行例:
 
 ```r
 source("04_proteome_limma.R", local = list(args = c(
-  "proteome_data.csv",
+  "input_proteome.csv",
   "Proteome_DE",
   "sample_metadata.tsv"
 )))
@@ -171,7 +184,7 @@ source("05_proteome_fgsea.R", local = list(args = c(
 metadata を使う推奨実行例:
 
 ```bash
-Rscript 04_proteome_limma.R proteome_data.csv Proteome_DE sample_metadata.tsv
+Rscript 04_proteome_limma.R input_proteome.csv Proteome_DE sample_metadata.tsv
 Rscript 05_proteome_fgsea.R Proteome_DE Gene_set/Human_old_HSC_set2.gmt Proteome_fGSEA "Mus musculus"
 ```
 

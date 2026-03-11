@@ -3,3 +3,6 @@ Proteome_fGSEA/
 .Rhistory
 .RData
 .Rproj.user/
+proteome_data.csv
+sample_metadata.tsv
+report.xlsx
