@@ -41,6 +41,18 @@ suppressPackageStartupMessages({
 
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
+normalize_gene_symbol <- function(x) {
+  x <- trimws(as.character(x))
+  x[x %in% c("", "NA")] <- NA_character_
+  x <- toupper(x)
+  x
+}
+
+normalize_gene_vector <- function(x) {
+  x <- normalize_gene_symbol(x)
+  unique(x[!is.na(x) & nzchar(x)])
+}
+
 read_gmt <- function(path, prefix = "CUSTOM") {
   lines <- readLines(path, warn = FALSE)
   lines <- lines[nzchar(trimws(lines))]
@@ -50,8 +62,7 @@ read_gmt <- function(path, prefix = "CUSTOM") {
   for (idx in seq_along(lines)) {
     fields <- strsplit(lines[[idx]], "\t", fixed = FALSE)[[1]]
     gmt_names[[idx]] <- paste0(prefix, "::", fields[[1]])
-    genes <- unique(toupper(fields[-c(1, 2)]))
-    genes <- genes[nzchar(genes)]
+    genes <- normalize_gene_vector(fields[-c(1, 2)])
     gmt_list[[idx]] <- genes
   }
 
@@ -68,8 +79,8 @@ read_msigdb_sets <- function(species, categories) {
       next
     }
 
-    split_list <- split(toupper(msig_df$gene_symbol), msig_df$gs_name)
-    split_list <- lapply(split_list, function(genes) unique(genes[nzchar(genes)]))
+    split_list <- split(msig_df$gene_symbol, msig_df$gs_name)
+    split_list <- lapply(split_list, normalize_gene_vector)
     names(split_list) <- paste0(category_id, "::", names(split_list))
     pathway_list <- c(pathway_list, split_list)
   }
@@ -160,7 +171,7 @@ for (de_file in de_files) {
   }
 
   stats <- de_df[[rank_col]]
-  names(stats) <- toupper(de_df$geneID)
+  names(stats) <- normalize_gene_symbol(de_df$geneID)
   keep_idx <- !is.na(stats) & nzchar(names(stats))
   stats <- stats[keep_idx]
   stats <- tapply(stats, names(stats), max)

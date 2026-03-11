@@ -122,7 +122,10 @@ proteome の GSEA では、RNA-seq と異なるバイアスに注意が必要で
    raw intensity や raw logFC のみで ranking すると高発現 protein に偏りやすいため、moderated t statistic を使います。
 
 6. species 差を分けて扱う
-   MsigDB は `msigdbr` から species 指定で取得します。一方で custom GMT はファイル内容をそのまま使うため、human 系の GMT を mouse proteome に使う場合は別途 ortholog 変換を検討してください。
+  MsigDB は `msigdbr` から species 指定で取得します。一方で custom GMT はファイル内容をそのまま使うため、human 系の GMT を mouse proteome に使う場合は別途 ortholog 変換を検討してください。
+
+7. gene symbol 表記を一貫化する
+  proteome 側の gene symbol、MsigDB、custom GMT はすべて `trimws + toupper` で正規化してから突き合わせます。human と mouse で大文字小文字の流儀が異なっていても一致しやすくするためです。ただし、これは表記ゆれ吸収であって ortholog 変換ではありません。
 
 ## Requirements
 
@@ -194,5 +197,5 @@ Rscript 05_proteome_fgsea.R Proteome_DE Gene_set/Human_old_HSC_set2.gmt Proteome
 
 - condition 数が増えると pairwise comparison の数は自動的に増えます。
 - replicate 数が少ない condition では、欠損フィルタ後に利用できる protein 数が減ることがあります。
-- custom GMT が human ベースの場合は、MsigDB の mouse collection と解釈上の厳密さが異なります。
+- custom GMT が human ベースの場合でも、gene symbol は大文字化して照合します。ただし species 間の 1 対 1 対応を保証するものではありません。
 - `overlap_n` が小さい pathway は過剰解釈しない方が安全です。

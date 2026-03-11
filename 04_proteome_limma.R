@@ -93,6 +93,13 @@ infer_sample_info <- function(sample_cols) {
   do.call(rbind, lapply(sample_cols, parse_sample_name))
 }
 
+normalize_gene_symbol <- function(x) {
+  x <- trimws(as.character(x))
+  x[x %in% c("", "NA")] <- NA_character_
+  x <- toupper(x)
+  x
+}
+
 choose_sample_columns <- function(proteome_df, sample_info = NULL) {
   if (!is.null(sample_info)) {
     missing_cols <- setdiff(sample_info$sample, names(proteome_df))
@@ -144,7 +151,7 @@ extract_gene_symbol <- function(gene_value, fallback_value) {
     return(NA_character_)
   }
 
-  tokens[[1]]
+  normalize_gene_symbol(tokens[[1]])
 }
 
 median_center_normalize <- function(mat) {
